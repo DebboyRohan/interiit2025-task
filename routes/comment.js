@@ -178,19 +178,45 @@ router.get("/", authenticate, async (req, res) => {
   }
 });
 
-//GET single comment with all nested replies (recursive)
 router.get("/:id", authenticate, async (req, res) => {
   try {
     const { id } = req.params;
 
-    if (!id || isNaN(parseInt(id))) {
-      return res.status(400).json({
-        success: false,
-        error: "Valid comment ID is required",
-      });
-    }
-
-    const comment = await getCommentWithReplies(parseInt(id));
+    const comment = await prisma.comment.findUnique({
+      where: { id: parseInt(id) },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            avatar: true,
+            role: true,
+          },
+        },
+        replies: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                avatar: true,
+                role: true,
+              },
+            },
+            _count: {
+              select: {
+                replies: true,
+              },
+            },
+          },
+          orderBy: {
+            upvotes: "desc",
+          },
+        },
+      },
+    });
 
     if (!comment) {
       return res.status(404).json({
@@ -207,27 +233,43 @@ router.get("/:id", authenticate, async (req, res) => {
     console.error("Error fetching comment:", error);
     res.status(500).json({
       success: false,
-      error: error.message,
+      error: "Failed to fetch comment",
     });
   }
 });
 
-//DELETE comment (Admin only)
-router.delete("/:id", authenticate, requireAdmin, async (req, res) => {
+// DELETE /api/comments/:id - Delete comment (Admin or Owner)
+router.delete("/:id", authenticate, async (req, res) => {
   try {
     const { id } = req.params;
+    const userId = req.user.id;
+    const userRole = req.user.role;
 
-    const existingComment = await prisma.comment.findUnique({
+    // First, fetch the comment to check ownership
+    const comment = await prisma.comment.findUnique({
       where: { id: parseInt(id) },
+      select: { user_id: true },
     });
 
-    if (!existingComment) {
+    if (!comment) {
       return res.status(404).json({
         success: false,
         error: "Comment not found",
       });
     }
 
+    // Check if user is admin OR owner of the comment
+    const isAdmin = userRole === "ADMIN";
+    const isOwner = comment.user_id === userId;
+
+    if (!isAdmin && !isOwner) {
+      return res.status(403).json({
+        success: false,
+        error: "You don't have permission to delete this comment",
+      });
+    }
+
+    // Delete the comment and all its replies (cascade)
     await prisma.comment.delete({
       where: { id: parseInt(id) },
     });
@@ -240,7 +282,7 @@ router.delete("/:id", authenticate, requireAdmin, async (req, res) => {
     console.error("Error deleting comment:", error);
     res.status(500).json({
       success: false,
-      error: error.message,
+      error: "Failed to delete comment",
     });
   }
 });
