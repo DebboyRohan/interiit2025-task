@@ -14,6 +14,7 @@ const corsOptions = {
   origin: [
     "https://kgpforum.work.gd",
     "https://www.kgpforum.work.gd",
+    "https://interiit2025-task-frontend.vercel.app",
     "http://localhost:3000",
   ],
   credentials: true,
